@@ -42,13 +42,15 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
-    void setRemainTicketColor(QString &remain, QStandardItem *item, bool canCandidate);
+    void setRemainTicketColor(QString &remain, QStandardItemModel *model, const QModelIndex &index, bool canCandidate);
     void setUp();
 
 public slots:
     void userStartStationChanged();
     void userEndStationChanged();
     void userTourDateChanged(const QDate &date);
+    void updateTableView(QVector<QStringList> allTrain, QVariantMap stationMap);
+
 protected:
     void resizeEvent(QResizeEvent *event);
     void closeEvent(QCloseEvent *event);

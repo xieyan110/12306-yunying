@@ -37,6 +37,7 @@
 #include <QDesktopServices>
 #include "icondelegate.h"
 #include "version.h"
+#include "12306.h"
 
 using namespace Qt;
 
@@ -488,20 +489,28 @@ void MainWindow::logoutSuccess()
 }
 
 
-void MainWindow::setRemainTicketColor(QString &remain, QStandardItem *item, bool canCandidate)
+void MainWindow::setRemainTicketColor(QString &remain, QStandardItemModel *model, const QModelIndex &index, bool canCandidate)
 {
+    const static QBrush green = QBrush(QColor(144, 238, 144));
+    const static QBrush gray = QBrush(QColor(190, 190, 190));
+    const static QBrush orange = QBrush(QColor(238, 154, 73));
+    const static QBrush black = QBrush(QColor(00, 00, 00));
+
     if (remain.isEmpty())
         return;
-    if (!remain.compare(QStringLiteral("有")))
-        item->setForeground(QBrush(QColor(144, 238, 144)));
-    else if (!remain.compare(QStringLiteral("无")))
-        item->setForeground(QBrush(QColor(190, 190, 190)));
-    else if (!remain.compare(_("--")))
-        item->setForeground(Qt::black);
-    else {
-        item->setForeground(QBrush(QColor(238, 154, 73)));
-        if (!canCandidate && !remain.compare(_("候补")))
-            item->setForeground(QBrush(QColor(190, 190, 190)));
+
+    if (!remain.compare(QStringLiteral("有"))) {
+        model->setData(index, green, Qt::ForegroundRole);
+    } else if (!remain.compare(QStringLiteral("无"))) {
+        model->setData(index, gray, Qt::ForegroundRole);
+    } else if (!remain.compare(_("--"))) {
+        model->setData(index, black, Qt::ForegroundRole);
+    } else {
+        if (!canCandidate && !remain.compare(_("候补"))) {
+            model->setData(index, gray, Qt::ForegroundRole);
+        } else {
+            model->setData(index, orange, Qt::ForegroundRole);
+        }
     }
 }
 
@@ -532,6 +541,362 @@ bool MainWindow::canAddNewTrain(const QString &trainTime)
     return false;
 }
 
+void MainWindow::updateTableView(QVector<QStringList> allTrain, QVariantMap stationMap)
+{
+    QPushButton *button;
+    QStandardItemModel *model = static_cast<QStandardItemModel *>(tableView->model());
+    QString curText;
+    int trainListSize = allTrain.size();
+    int can_booking = 0;
+    int i, itemIdx;
+    int useTrainListSize = trainListSize;
+    QStringList timeStrList;
+    QStringList timeStrList2;
+    int spendDays, spendTime;
+    int hour;
+    UserData *ud = UserData::instance();
+    UserConfig &uc = ud->getUserConfig();
+    QString staFromName = uc.staFromName;
+    QString staToName = uc.staToName;
+    QString tourDate = uc.tourDate;
+
+    itemIdx = 0;
+    const QBrush blue = QBrush(QColor(99, 184, 255));
+    const QBrush violetRed = QBrush(QColor(205, 104, 137));
+    const QBrush slateGray = QBrush(QColor(122, 139, 139));
+    const QBrush orange = QBrush(QColor(238, 118, 33));
+    QVector<int> tableSeatIndexVec(128, 0);
+    QVector<QStringList> invalidTrain;
+    QString fromStationName, toStationName;
+    const QVector<QPair<int, enum TrainInfoEnum>> tableSeatTypeData = {
+        QPair<int, enum TrainInfoEnum>(ESPECIALSEATCOL, ETZNUM),
+        QPair<int, enum TrainInfoEnum>(ESPECIALSEATCOL, ESWZNUM),
+        QPair<int, enum TrainInfoEnum>(EPRIFIRSTPRISEATCOL, EGGNUM),
+        QPair<int, enum TrainInfoEnum>(EFIRSTPRISEATCOL, EZYNUM),
+        QPair<int, enum TrainInfoEnum>(ESECONDPRISEATCOL, EZENUM),
+        QPair<int, enum TrainInfoEnum>(EADVSOFTCROUCHCOL, EGRNUM),
+        QPair<int, enum TrainInfoEnum>(ESOFTCROUCHCOL, ERWNUM),
+        QPair<int, enum TrainInfoEnum>(EHARDCROUCHCOL, EYWNUM),
+        QPair<int, enum TrainInfoEnum>(ESOFTSEATCOL, ERZNUM),
+        QPair<int, enum TrainInfoEnum>(EHARDSEATCOL, EYZNUM),
+        QPair<int, enum TrainInfoEnum>(ENOSEATCOL, EWZNUM),
+        QPair<int, enum TrainInfoEnum>(EOTHERCOL, EQTNUM)
+    };
+
+    tableSeatIndexVec[SEATSHANGWU] = ESPECIALSEATCOL;
+    tableSeatIndexVec[SEATTEDENG] = ESPECIALSEATCOL;
+    tableSeatIndexVec[SEATYXYIDENG] = EPRIFIRSTPRISEATCOL;
+    tableSeatIndexVec[SEATYIDENG] = EFIRSTPRISEATCOL;
+    tableSeatIndexVec[SEATERDENG] = ESECONDPRISEATCOL;
+    tableSeatIndexVec[SEATGAOJIDONGWUO] = EADVSOFTCROUCHCOL;
+    tableSeatIndexVec[SEATRUANWUO] = ESOFTCROUCHCOL;
+    tableSeatIndexVec[SEATDONGWUO] = EADVSOFTCROUCHCOL;
+    tableSeatIndexVec[SEATYIDENGWUO] = ESOFTCROUCHCOL;
+    tableSeatIndexVec[SEATERDEWUO] = EHARDCROUCHCOL;
+    tableSeatIndexVec[SEATYINGWUO] = EHARDCROUCHCOL;
+    tableSeatIndexVec[SEATRRUANZUO] = ESOFTSEATCOL;
+    tableSeatIndexVec[SEATYINGZUO] = EHARDSEATCOL;
+
+    model->setRowCount(allTrain.size());
+
+    // tableview批量更新性能优化
+    tableView->setUpdatesEnabled(false);  // 关闭更新渲染
+    model->blockSignals(true); // 阻止数据变化信号
+    // 开始显示到tableview
+    for (i = 0; i < allTrain.size(); i++) {
+        QStringList &trainInfo = allTrain[i];
+        QStringList dwFlag = trainInfo[EDWFLAG].split('#');
+        bool isFunXing = dwFlag.length() > 1 && dwFlag[1] == '1';  // 复兴号
+        bool isZiNeng = !dwFlag.isEmpty() && dwFlag[0] == '5';  // 智能列车
+        bool isDongGan = dwFlag.length() > 5 && dwFlag[5] == 'D';  // 动感号
+
+        char trainCodePrefix = trainInfo[ESTATIONTRAINCODE][0].toLatin1();
+        if ((settingDialog->trainTypeShowVec['5'] && isZiNeng) ||
+            (settingDialog->trainTypeShowVec['1'] && isFunXing) ||
+            (settingDialog->trainTypeShowVec['d'] && isDongGan)) {
+
+        } else {
+            if (settingDialog->trainTypeShowVec[trainCodePrefix] == false) {
+                if (settingDialog->trainTypeShowVec['O'] == false) {
+                    useTrainListSize--;
+                    continue;
+                }
+            }
+        }
+        if (ud->generalSetting.startTimeRange1 != 0 ||
+            ud->generalSetting.startTimeRange2 != 24) {
+            timeStrList = trainInfo[ESTARTTIME].split(':');
+            if (!timeStrList.isEmpty()) {
+                hour = timeStrList[0].toInt();
+                if (hour < ud->generalSetting.startTimeRange1 ||
+                    hour >= ud->generalSetting.startTimeRange2) {
+                    useTrainListSize--;
+                    continue;
+                }
+            }
+        }
+
+        fromStationName = stationMap.value(trainInfo[EFROMSTATIONTELECODE]).toString();
+        toStationName = stationMap.value(trainInfo[ETOSTATIONTELECODE]).toString();
+
+        if (ud->runStatus != EGRABTICKET) {
+            if (trainInfo[ECANWEBBUY] == _("Y")) {
+                can_booking++;
+            }
+        }
+        if ((trainInfo[ECONTROLLEDTRAINFLAG] == _("1") || trainInfo[ECONTROLLEDTRAINFLAG] == _("2"))) {
+            invalidTrain.push_back(trainInfo);
+            //useTrainListSize--;
+            continue;
+        }
+
+        curText = trainInfo[ESTATIONTRAINCODE].isEmpty() ?
+                      "--" : trainInfo[ESTATIONTRAINCODE];
+        if (model->data(model->index(itemIdx, ETRAINNOCOL), Qt::DisplayRole).value<QString>() != curText) {
+            model->setData(model->index(itemIdx, ETRAINNOCOL), curText, Qt::DisplayRole);
+            model->setData(model->index(itemIdx, ETRAINNOCOL), curText, Qt::ToolTipRole);
+            model->setData(model->index(itemIdx, ETRAINNOCOL), blue, Qt::ForegroundRole);
+            model->setData(model->index(itemIdx, ETRAINNOCOL), trainInfo[ETRAINNO], Qt::UserRole);
+        }
+
+        if (model->data(model->index(itemIdx, EFROMSTATIONCOL), Qt::DisplayRole).value<QString>() != fromStationName) {
+            model->setData(model->index(itemIdx, EFROMSTATIONCOL), fromStationName, Qt::DisplayRole);
+            model->setData(model->index(itemIdx, EFROMSTATIONCOL), fromStationName, Qt::ToolTipRole);
+            model->setData(model->index(itemIdx, EFROMSTATIONCOL),
+                           trainInfo[EFROMSTATIONTELECODE] == trainInfo[ESTARTSTATIONTELECODE], Qt::DecorationRole);
+            model->setData(model->index(itemIdx, EFROMSTATIONCOL), trainInfo[EFROMSTATIONTELECODE], Qt::UserRole);
+        }
+
+        if (model->data(model->index(itemIdx, ETOSTATIONCOL), Qt::DisplayRole).value<QString>() != toStationName) {
+            model->setData(model->index(itemIdx, ETOSTATIONCOL), toStationName, Qt::DisplayRole);
+            model->setData(model->index(itemIdx, ETOSTATIONCOL), toStationName, Qt::ToolTipRole);
+            model->setData(model->index(itemIdx, ETOSTATIONCOL),
+                           trainInfo[ETOSTATIONTELECODE] == trainInfo[EENDSTATIONTELECODE], Qt::DecorationRole);
+            model->setData(model->index(itemIdx, ETOSTATIONCOL), trainInfo[ETOSTATIONTELECODE], Qt::UserRole);
+        }
+
+
+        if (model->data(model->index(itemIdx, ESTARTTIMECOL), Qt::DisplayRole).value<QString>() != trainInfo[ESTARTTIME]) {
+            model->setData(model->index(itemIdx, ESTARTTIMECOL), trainInfo[ESTARTTIME], Qt::DisplayRole);
+            model->setData(model->index(itemIdx, ESTARTTIMECOL), violetRed, Qt::ForegroundRole);
+            model->setData(model->index(itemIdx, ESTARTTIMECOL), Qt::AlignCenter, Qt::TextAlignmentRole);
+        }
+
+        if (model->data(model->index(itemIdx, EARRIVETIMECOL), Qt::DisplayRole).value<QString>() != trainInfo[EARRIVETIME]) {
+            model->setData(model->index(itemIdx, EARRIVETIMECOL), trainInfo[EARRIVETIME], Qt::DisplayRole);
+            model->setData(model->index(itemIdx, EARRIVETIMECOL), violetRed, Qt::ForegroundRole);
+            model->setData(model->index(itemIdx, EARRIVETIMECOL), Qt::AlignCenter, Qt::TextAlignmentRole);
+        }
+
+
+        if (ud->runStatus == EIDLE) {
+            timeStrList = trainInfo[ESTARTTIME].split(':');
+            timeStrList2 = trainInfo[ESPENDTIME].split(':');
+            spendDays = 0;
+            if (timeStrList.size() > 1 && timeStrList2.size() > 1) {
+                spendTime = timeStrList[0].toInt() + timeStrList2[0].toInt();
+                if (timeStrList[1].toInt() + timeStrList2[1].toInt() > 59) {
+                    spendTime++;
+                }
+                while (spendTime - 24 >= 0) {
+                    spendTime -= 24;
+                    spendDays++;
+                }
+            }
+            model->setData(model->index(itemIdx, EARRIVETIMECOL), spendDays, Qt::UserRole);
+        }
+
+        if (model->data(model->index(itemIdx, EUSEDTIMECOL), Qt::DisplayRole).value<QString>() != trainInfo[ESPENDTIME]) {
+            model->setData(model->index(itemIdx, EUSEDTIMECOL), trainInfo[ESPENDTIME], Qt::DisplayRole);
+            model->setData(model->index(itemIdx, EUSEDTIMECOL), slateGray, Qt::ForegroundRole);
+            model->setData(model->index(itemIdx, EUSEDTIMECOL), Qt::AlignCenter, Qt::TextAlignmentRole);
+        }
+
+        for (auto &seatTypeData : tableSeatTypeData) {
+            bool canCandidate = false;
+            curText = trainInfo[seatTypeData.second].isEmpty() ? _("--") :
+                          trainInfo[seatTypeData.second];
+            if (seatTypeData.first == ESWZNUM) {
+                if (trainInfo[seatTypeData.second].isEmpty() ||
+                    trainInfo[seatTypeData.second] == _("无") ||
+                    trainInfo[seatTypeData.second] == _("0")) {
+                    continue;
+                }
+            }
+            if (!trainInfo[ESECRETSTR].isEmpty() && trainInfo[ECANDIDATETRAINFLAG] == _("1") &&
+                curText == _("无")) {
+                if (seatTypeData.second != EWZNUM && seatTypeData.second != EQTNUM) {
+                    curText = _("候补");
+                    QChar c = seatTypeNoToCode(seatTypeData.second);
+                    if (c != '0' && !trainInfo[ECANDIDATESEATLIMIT].contains(c)) {
+                        canCandidate = true;
+                    }
+                }
+            }
+            int type = 0;
+            if (model->data(model->index(itemIdx, seatTypeData.first), Qt::DisplayRole).value<QString>() != curText) {
+
+                SETCANCANDIDATE(type, canCandidate);
+                model->setData(model->index(itemIdx, seatTypeData.first), curText, Qt::DisplayRole);
+                setRemainTicketColor(curText, model, model->index(itemIdx, seatTypeData.first), canCandidate);
+                model->setData(model->index(itemIdx, seatTypeData.first), curText, Qt::WhatsThisRole);
+                model->setData(model->index(itemIdx, seatTypeData.first), Qt::AlignCenter, Qt::TextAlignmentRole);
+
+                if (seatTypeData.first == EOTHERCOL) {
+                    SETFUXING(type, isFunXing);
+                    SETZINENG(type, isZiNeng);
+                    SETDONGGAN(type, isDongGan);
+                }
+                model->setData(model->index(itemIdx, seatTypeData.first), type, Qt::UserRole);
+            }
+        }
+
+        button = dynamic_cast<QPushButton *>(tableView->indexWidget(model->index(itemIdx, EREMARKCOL)));
+        if (!button) {
+            button = new QPushButton;
+            connect(button, &QPushButton::clicked, this, &MainWindow::addTrainToSelected);
+            tableView->setIndexWidget(model->index(itemIdx, EREMARKCOL), button);
+        }
+        curText = trainInfo[ETEXTINFO];
+        if (curText != _("预订")) {
+            if (curText.endsWith(_("<br/>"))) {
+                curText.remove(_("<br/>"));
+            }
+            if (curText.endsWith(_("起售"))) {
+                curText.remove(_("起售"));
+            }
+            if (curText.length() > 4) {
+                button->setToolTip(curText);
+            }
+        }
+
+        if (button->text() != curText) {
+            button->setText(curText);
+        }
+        if (ud->runStatus != EIDLE) {
+            //button->setStyleSheet(QStringLiteral("QPushButton { background-color: #A9A9A9; color: #4F4F4F; }"));
+            button->setEnabled(false);
+        } else {
+            //button->setStyleSheet(QStringLiteral("QPushButton { color: #1C86EE; }"));
+            button->setProperty("fromStationName", fromStationName);
+            button->setProperty("toStationName", toStationName);
+            button->setProperty("trainCode", trainInfo[ESTATIONTRAINCODE]);
+        }
+
+        // 席别余票分析，显示余票
+        if (ud->runStatus == EIDLE) {
+            QString &ypInfoNew = trainInfo[EYPINFONEW];
+            int ypInfoNewSize = ypInfoNew.size();
+            int col;
+
+            for (int j = 0; j < ypInfoNewSize; j += 10) {
+                if (j + 10 > ypInfoNewSize) {
+                    break;
+                }
+                int price = ypInfoNew.sliced(j + 1, 5).toInt();
+                float price2 = price / 10.0;
+                int dd = ypInfoNew.sliced(j + 6, 4).toInt();
+                char t = ypInfoNew[j].toLatin1();
+                //QMap<char, QStandardItem *>::ConstIterator it =
+                //tableSeatTypeItemsMap.constFind(t);
+                col = tableSeatIndexVec[t];
+                if (col) {
+                    if (model->data(model->index(itemIdx, col), Qt::DisplayRole).value<QString>() != _("__")) {
+                        model->setData(model->index(itemIdx, col), price2, Qt::ToolTipRole);
+                        if (uc.showTicketPrice) {
+                            model->setData(model->index(itemIdx, col), price2, Qt::DisplayRole);
+                            model->setData(model->index(itemIdx, col), orange, Qt::ForegroundRole);
+                        }
+                    }
+                } else {
+                    // 其他
+                    if (dd < 3000) {
+                        if (model->data(model->index(itemIdx, EOTHERCOL), Qt::DisplayRole).value<QString>() != _("__")) {
+                            model->setData(model->index(itemIdx, EOTHERCOL), price2, Qt::ToolTipRole);
+                            if (uc.showTicketPrice) {
+                                model->setData(model->index(itemIdx, EOTHERCOL), price2, Qt::DisplayRole);
+                                model->setData(model->index(itemIdx, EOTHERCOL), orange, Qt::ForegroundRole);
+                            }
+                        }
+                    }
+                }
+                // 无座
+                if (dd >= 3000) {
+                    if (model->data(model->index(itemIdx, ENOSEATCOL), Qt::DisplayRole).value<QString>() != _("__")) {
+                        model->setData(model->index(itemIdx, ENOSEATCOL), price2, Qt::ToolTipRole);
+                        if (uc.showTicketPrice) {
+                            model->setData(model->index(itemIdx, ENOSEATCOL), price2, Qt::DisplayRole);
+                            model->setData(model->index(itemIdx, ENOSEATCOL), orange, Qt::ForegroundRole);
+                        }
+                    }
+                }
+            }
+
+            trainNoDialog->addTrain(_("%1 (%2 %3 %4-%5 %6)").arg(trainInfo[ESTATIONTRAINCODE],
+                                                                 fromStationName,
+                                                                 toStationName,
+                                                                 trainInfo[ESTARTTIME],
+                                                                 trainInfo[EARRIVETIME],
+                                                                 trainInfo[ESPENDTIME]), trainInfo[ETRAINNO]);
+        }
+
+        itemIdx++;
+    }
+    trainNoDialog->addTrainFinish();
+    // 列车运行图调整的列车
+    int invalidTrainSize = invalidTrain.size();
+    for (i = 0; i < invalidTrainSize; i++) {
+        QStringList &trainInfo = invalidTrain[i];
+        QString curText = trainInfo[ESTATIONTRAINCODE].isEmpty() ?
+                              "--" : trainInfo[ESTATIONTRAINCODE];
+        if (model->data(model->index(itemIdx, ETRAINNOCOL), Qt::DisplayRole).value<QString>() != curText) {
+            model->setData(model->index(itemIdx, ETRAINNOCOL), curText, Qt::DisplayRole);
+            model->setData(model->index(itemIdx, ETRAINNOCOL), Qt::AlignCenter, Qt::TextAlignmentRole);
+            model->setData(model->index(itemIdx, ETRAINNOCOL), curText, Qt::ToolTipRole);
+        }
+
+        fromStationName = stationMap.value(trainInfo[EFROMSTATIONTELECODE]).toString();
+        if (model->data(model->index(itemIdx, EFROMSTATIONCOL), Qt::DisplayRole).value<QString>() != toStationName) {
+            model->setData(model->index(itemIdx, EFROMSTATIONCOL), toStationName, Qt::DisplayRole);
+            model->setData(model->index(itemIdx, EFROMSTATIONCOL), toStationName, Qt::ToolTipRole);
+        }
+
+        toStationName = stationMap.value(trainInfo[ETOSTATIONTELECODE]).toString();
+        if (model->data(model->index(itemIdx, ETOSTATIONCOL), Qt::DisplayRole).value<QString>() != toStationName) {
+            model->setData(model->index(itemIdx, ETOSTATIONCOL), toStationName, Qt::DisplayRole);
+            model->setData(model->index(itemIdx, ETOSTATIONCOL), toStationName, Qt::ToolTipRole);
+        }
+
+        for (int k = ESTARTTIMECOL; k < EREMARKCOL; k++) {
+            model->setData(model->index(itemIdx, k), _("--"), Qt::DisplayRole);
+            model->setData(model->index(itemIdx, k), Qt::AlignCenter, Qt::TextAlignmentRole);
+        }
+        QPushButton *button = dynamic_cast<QPushButton *>(tableView->indexWidget(model->index(itemIdx, EREMARKCOL)));
+        if (button) {
+            disconnect(button, &QPushButton::clicked, this, &MainWindow::addTrainToSelected);
+            tableView->setIndexWidget(model->index(itemIdx, EREMARKCOL), nullptr);
+        }
+
+        model->setData(model->index(itemIdx, EREMARKCOL), trainInfo[ETEXTINFO], Qt::DisplayRole);
+        model->setData(model->index(itemIdx, EREMARKCOL), Qt::AlignCenter, Qt::TextAlignmentRole);
+        model->setData(model->index(itemIdx, EREMARKCOL), trainInfo[ETEXTINFO], Qt::ToolTipRole);
+        itemIdx++;
+    }
+    model->blockSignals(false); // 恢复信号
+    tableView->setUpdatesEnabled(true);
+    //tableView->viewport()->update();  // 触发一次重绘
+
+    if (ud->runStatus == EIDLE) {
+        if (useTrainListSize == trainListSize) {
+            formatOutput(_("%1->%2(%3) 共查询到 %4 趟车次, 可预订 %5 趟车次").
+                         arg(staFromName, staToName, tourDate).arg(trainListSize).arg(can_booking));
+        } else {
+            formatOutput(_("%1->%2(%3) 共查询到 %4 趟车次, 已过滤 %5 趟车次, 可预订 %6 趟车次").
+                         arg(staFromName, staToName, tourDate).arg(trainListSize)
+                             .arg(trainListSize - useTrainListSize).arg(can_booking));
+        }
+    }
+}
 
 // 处理查询余票返回结果
 void MainWindow::processQueryTicketReply(QVariantMap &data)
@@ -563,52 +928,43 @@ void MainWindow::processQueryTicketReply(QVariantMap &data)
         model->removeRows(0, model->rowCount());
         return;
     }
-    int trainListSize = resultList.size();
-    int can_booking = 0;
-    int i, itemIdx;
-    int useTrainListSize = trainListSize;
 
-    model->setRowCount(trainListSize);
+    int can_booking = 0;
+    int i;
+    int trainListSize = resultList.size();
+
     QVector<QStringList> allTrain;
     QVector<QStringList> availableTrain;
-    QVector<QStringList> invalidTrain;
+    QVector<QStringList> candidateTrain;
     QString fromStationName, toStationName;
-    const QVector<QPair<int, enum TrainInfoEnum>> tableSeatTypeData = {
-             QPair<int, enum TrainInfoEnum>(ESPECIALSEATCOL, ETZNUM),
-             QPair<int, enum TrainInfoEnum>(ESPECIALSEATCOL, ESWZNUM),
-             QPair<int, enum TrainInfoEnum>(EPRIFIRSTPRISEATCOL, EGGNUM),
-             QPair<int, enum TrainInfoEnum>(EFIRSTPRISEATCOL, EZYNUM),
-             QPair<int, enum TrainInfoEnum>(ESECONDPRISEATCOL, EZENUM),
-             QPair<int, enum TrainInfoEnum>(EADVSOFTCROUCHCOL, EGRNUM),
-             QPair<int, enum TrainInfoEnum>(ESOFTCROUCHCOL, ERWNUM),
-             QPair<int, enum TrainInfoEnum>(EHARDCROUCHCOL, EYWNUM),
-             QPair<int, enum TrainInfoEnum>(ESOFTSEATCOL, ERZNUM),
-             QPair<int, enum TrainInfoEnum>(EHARDSEATCOL, EYZNUM),
-             QPair<int, enum TrainInfoEnum>(ENOSEATCOL, EWZNUM),
-             QPair<int, enum TrainInfoEnum>(EOTHERCOL, EQTNUM)
-    };
-    QVector<QStandardItem *> tableSeatTypeItems;
-    QMap<char, QStandardItem *> tableSeatTypeItemsMap;
-    QStringList timeStrList;
-    QStringList timeStrList2;
-    int spendDays, spendTime;
-    int hour;
+
+    struct timespec t_spec[3];
+    clock_gettime(CLOCK_MONOTONIC, &t_spec[0]);
+
+    for (i = 0; i < trainListSize; i++) {
+        QString train = resultList[i].toString();
+        QStringList trainInfo = train.split('|');
+
+        if (trainInfo.size() < ETRAININFOMAX) {
+            continue;
+        }
+
+        if (trainInfo[ESTATIONTRAINCODE].isEmpty()) {
+            continue;
+        }
+        allTrain.push_back(trainInfo);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t_spec[1]);
 
     // 抢票模式先分析车票再渲染，防止渲染浪费时间
     if (ud->runStatus == EGRABTICKET) {
-        for (i = 0; i < trainListSize; i++) {
-            QString train = resultList[i].toString();
-            QStringList trainInfo = train.split('|');
+        for (i = 0; i < allTrain.size(); i++) {
+            QStringList &trainInfo = allTrain[i];
 
-            if (trainInfo.size() < ETRAININFOMAX) {
-                continue;
-            }
             if (trainInfo[ESECRETSTR].isEmpty()) {
                 continue;
             }
-            if (trainInfo[ESTATIONTRAINCODE].isEmpty()) {
-                continue;
-            }
+
             if (trainInfo[ECANWEBBUY] == _("Y")) {
                 if (ud->runStatus == EGRABTICKET) {
                     availableTrain.push_back(trainInfo);
@@ -632,12 +988,12 @@ void MainWindow::processQueryTicketReply(QVariantMap &data)
                 can_booking++;
             }
             if (ud->candidateSetting.isCandidate) {
-                allTrain.push_back(trainInfo);
+                candidateTrain.push_back(trainInfo);
             }
         }
         formatOutput(_("%1->%2(%3) 共查询到 %4 趟车次, 可预订 %5 趟车次").
-                     arg(staFromName, staToName, tourDate).arg(trainListSize).arg(can_booking));
-        Analysis candidateAnalysis(allTrain);
+                     arg(staFromName, staToName, tourDate).arg(allTrain.size()).arg(can_booking));
+        Analysis candidateAnalysis(candidateTrain);
         int trainNoIdx = -1;
         bool hasCandidate = false;
 
@@ -713,376 +1069,7 @@ void MainWindow::processQueryTicketReply(QVariantMap &data)
         }
     }
 
-    itemIdx = 0;
-    // 开始显示到tableview
-    for (i = 0; i < trainListSize; i++) {
-        QString train = resultList[i].toString();
-        QStringList trainInfo = train.split('|');
-        QStandardItem  *item;
-        QPushButton *button;
-        QString curText;
-
-        if (trainInfo.size() < ETRAININFOMAX) {
-            useTrainListSize--;
-            continue;
-        }
-        if (trainInfo[ESTATIONTRAINCODE].isEmpty()) {
-            useTrainListSize--;
-            continue;
-        }
-        QStringList dwFlag = trainInfo[EDWFLAG].split('#');
-        bool isFunXing = dwFlag.length() > 1 && dwFlag[1] == '1';  // 复兴号
-        bool isZiNeng = !dwFlag.isEmpty() && dwFlag[0] == '5';  // 智能列车
-        bool isDongGan = dwFlag.length() > 5 && dwFlag[5] == 'D';  // 动感号
-
-        char trainCodePrefix = trainInfo[ESTATIONTRAINCODE][0].toLatin1();
-        if ((settingDialog->trainTypeShowVec['5'] && isZiNeng) ||
-            (settingDialog->trainTypeShowVec['1'] && isFunXing) ||
-            (settingDialog->trainTypeShowVec['d'] && isDongGan)) {
-
-        } else {
-            if (settingDialog->trainTypeShowVec[trainCodePrefix] == false) {
-                if (settingDialog->trainTypeShowVec['O'] == false) {
-                    useTrainListSize--;
-                    continue;
-                }
-            }
-        }
-        if (ud->generalSetting.startTimeRange1 != 0 ||
-            ud->generalSetting.startTimeRange2 != 24) {
-            timeStrList = trainInfo[ESTARTTIME].split(':');
-            if (!timeStrList.isEmpty()) {
-                hour = timeStrList[0].toInt();
-                if (hour < ud->generalSetting.startTimeRange1 ||
-                    hour >= ud->generalSetting.startTimeRange2) {
-                    useTrainListSize--;
-                    continue;
-                }
-            }
-        }
-
-        fromStationName = stationMap.value(trainInfo[EFROMSTATIONTELECODE]).toString();
-        toStationName = stationMap.value(trainInfo[ETOSTATIONTELECODE]).toString();
-
-        if (ud->runStatus != EGRABTICKET) {
-            if (trainInfo[ECANWEBBUY] == _("Y")) {
-                can_booking++;
-            }
-        }
-        if ((trainInfo[ECONTROLLEDTRAINFLAG] == _("1") || trainInfo[ECONTROLLEDTRAINFLAG] == _("2"))) {
-            invalidTrain.push_back(trainInfo);
-            //useTrainListSize--;
-            continue;
-        }
-
-        curText = trainInfo[ESTATIONTRAINCODE].isEmpty() ?
-                      "--" : trainInfo[ESTATIONTRAINCODE];
-        item = model->item(itemIdx, ETRAINNOCOL);
-        if (!item) {
-            model->setItem(itemIdx, ETRAINNOCOL, item = new QStandardItem(curText));
-            item->setTextAlignment(Qt::AlignCenter);
-            item->setForeground(QBrush(QColor(99, 184, 255)));
-        }
-        if (item->text() != curText) {
-            item->setText(curText);
-            item->setToolTip(curText);
-            item->setForeground(QBrush(QColor(99, 184, 255)));
-        }
-        item->setData(trainInfo[ETRAINNO], Qt::UserRole);
-
-        item = model->item(itemIdx, EFROMSTATIONCOL);
-        if (!item) {
-            model->setItem(itemIdx, EFROMSTATIONCOL, item = new QStandardItem);
-        }
-        if (item->text() != fromStationName) {
-            item->setText(fromStationName);
-            item->setToolTip(fromStationName);
-            item->setData(fromStationName, Qt::ToolTipRole);
-        }
-        //item->setTextAlignment(Qt::AlignCenter);
-        /*item->setFont(QFont("Times", 10, QFont::Black));
-        item->setForeground(QBrush(QColor(99, 184, 255)));*/
-        item->setData(trainInfo[EFROMSTATIONTELECODE] == trainInfo[ESTARTSTATIONTELECODE], Qt::DecorationRole);
-        item->setData(trainInfo[EFROMSTATIONTELECODE], Qt::UserRole);
-
-
-        item = model->item(itemIdx, ETOSTATIONCOL);
-        if (!item) {
-            model->setItem(itemIdx, ETOSTATIONCOL, item = new QStandardItem);
-            item->setTextAlignment(Qt::AlignCenter);
-            item->setToolTip(toStationName);
-            /*item->setFont(QFont("Times", 10, QFont::Black));
-            item->setForeground(QBrush(QColor(99, 184, 255)));*/
-        }
-        if (item->text() != toStationName) {
-            item->setText(toStationName);
-            item->setToolTip(toStationName);
-            item->setData(toStationName, Qt::ToolTipRole);
-            //item->setForeground(QBrush(QColor(99, 184, 255)));
-        }
-        item->setData(trainInfo[ETOSTATIONTELECODE] == trainInfo[EENDSTATIONTELECODE], Qt::DecorationRole);
-        item->setData(trainInfo[ETOSTATIONTELECODE], Qt::UserRole);
-
-        item = model->item(itemIdx, ESTARTTIMECOL);
-        if (!item) {
-            model->setItem(itemIdx, ESTARTTIMECOL, item = new QStandardItem(trainInfo[ESTARTTIME]));
-            item->setTextAlignment(Qt::AlignCenter);
-            item->setForeground(QBrush(QColor(205, 104, 137)));
-
-        }
-
-        if (item->text() != trainInfo[ESTARTTIME]) {
-            item->setText(trainInfo[ESTARTTIME]);
-            item->setForeground(QBrush(QColor(205, 104, 137)));
-        }
-
-        item = model->item(itemIdx, EARRIVETIMECOL);
-        if (!item) {
-            model->setItem(itemIdx, EARRIVETIMECOL, item = new QStandardItem(trainInfo[EARRIVETIME]));
-            item->setTextAlignment(Qt::AlignCenter);
-            item->setForeground(QBrush(QColor(205, 104, 137)));
-
-        }
-        if (item->text() != trainInfo[EARRIVETIME]) {
-            item->setText(trainInfo[EARRIVETIME]);
-            item->setForeground(QBrush(QColor(205, 104, 137)));
-        }
-
-        if (ud->runStatus == EIDLE) {
-            timeStrList = trainInfo[ESTARTTIME].split(':');
-            timeStrList2 = trainInfo[ESPENDTIME].split(':');
-            spendDays = 0;
-            if (timeStrList.size() > 1 && timeStrList2.size() > 1) {
-                spendTime = timeStrList[0].toInt() + timeStrList2[0].toInt();
-                if (timeStrList[1].toInt() + timeStrList2[1].toInt() > 59) {
-                    spendTime++;
-                }
-                while (spendTime - 24 >= 0) {
-                    spendTime -= 24;
-                    spendDays++;
-                }
-            }
-            item->setData(spendDays, Qt::UserRole);
-        }
-
-        item = model->item(itemIdx, EUSEDTIMECOL);
-        if (!item) {
-            model->setItem(itemIdx, EUSEDTIMECOL, item = new QStandardItem(trainInfo[ESPENDTIME]));
-            item->setTextAlignment(Qt::AlignCenter);
-            item->setForeground(QBrush(QColor(122, 139, 139)));
-        }
-        if (item->text() != trainInfo[ESPENDTIME]) {
-            item->setText(trainInfo[ESPENDTIME]);
-            item->setForeground(QBrush(QColor(122, 139, 139)));
-        }
-
-        for (auto &seatTypeData : tableSeatTypeData) {
-            item = model->item(itemIdx, seatTypeData.first);
-            if (!item) {
-                item = new QStandardItem;
-                model->setItem(itemIdx, seatTypeData.first, item);
-            }
-
-            bool canCandidate = false;
-            curText = trainInfo[seatTypeData.second].isEmpty() ? _("--") :
-                              trainInfo[seatTypeData.second];
-            if (seatTypeData.first == ESWZNUM) {
-                if (trainInfo[seatTypeData.second].isEmpty() ||
-                    trainInfo[seatTypeData.second] == _("无") ||
-                    trainInfo[seatTypeData.second] == _("0")) {
-                    tableSeatTypeItems.push_back(item);
-                    continue;
-                }
-            }
-            if (!trainInfo[ESECRETSTR].isEmpty() && trainInfo[ECANDIDATETRAINFLAG] == _("1") &&
-                curText == _("无")) {
-                if (seatTypeData.second != EWZNUM && seatTypeData.second != EQTNUM) {
-                    curText = _("候补");
-                    QChar c = seatTypeNoToCode(seatTypeData.second);
-                    if (c != '0' && !trainInfo[ECANDIDATESEATLIMIT].contains(c)) {
-                        canCandidate = true;
-                    }
-                }
-            }
-            int type = 0;
-            SETCANCANDIDATE(type, canCandidate);
-            setRemainTicketColor(curText, item, canCandidate);
-            if (item->text() != curText) {
-                item->setText(curText);
-                item->setData(curText, Qt::WhatsThisRole);
-                item->setTextAlignment(Qt::AlignCenter);
-            }
-
-            if (seatTypeData.first == EOTHERCOL) {
-                SETFUXING(type, isFunXing);
-                SETZINENG(type, isZiNeng);
-                SETDONGGAN(type, isDongGan);
-            }
-            item->setData(type, Qt::UserRole);
-
-            tableSeatTypeItems.push_back(item);
-        }
-
-
-        button = dynamic_cast<QPushButton *>(tableView->indexWidget(model->index(itemIdx, EREMARKCOL)));
-        if (!button) {
-            button = new QPushButton;
-            connect(button, &QPushButton::clicked, this, &MainWindow::addTrainToSelected);
-        }
-        curText = trainInfo[ETEXTINFO];
-        if (curText != _("预订")) {
-            if (curText.endsWith(_("<br/>"))) {
-                curText.remove(_("<br/>"));
-            }
-            if (curText.endsWith(_("起售"))) {
-                curText.remove(_("起售"));
-            }
-            if (curText.length() > 4) {
-                button->setToolTip(curText);
-            }
-        }
-        button->setText(curText);
-        if (ud->runStatus != EIDLE) {
-            //button->setStyleSheet(QStringLiteral("QPushButton { background-color: #A9A9A9; color: #4F4F4F; }"));
-            button->setEnabled(false);
-        } else {
-            //button->setStyleSheet(QStringLiteral("QPushButton { color: #1C86EE; }"));
-            button->setProperty("fromStationName", fromStationName);
-            button->setProperty("toStationName", toStationName);
-            button->setProperty("trainCode", trainInfo[ESTATIONTRAINCODE]);
-        }
-        tableView->setIndexWidget(model->index(itemIdx, EREMARKCOL), button);
-
-        // 席别余票分析，显示余票
-        if (ud->runStatus == EIDLE) {
-            QString &ypInfoNew = trainInfo[EYPINFONEW];
-            int ypInfoNewSize = ypInfoNew.size();
-
-            tableSeatTypeItemsMap.insert('9', tableSeatTypeItems[0]);
-            tableSeatTypeItemsMap.insert('P', tableSeatTypeItems[1]);
-            tableSeatTypeItemsMap.insert('D', tableSeatTypeItems[2]);
-            tableSeatTypeItemsMap.insert('M', tableSeatTypeItems[3]);
-            tableSeatTypeItemsMap.insert('O', tableSeatTypeItems[4]);
-            tableSeatTypeItemsMap.insert('6', tableSeatTypeItems[5]);
-            tableSeatTypeItemsMap.insert('4', tableSeatTypeItems[6]);
-            tableSeatTypeItemsMap.insert('F', tableSeatTypeItems[6]);
-            tableSeatTypeItemsMap.insert('I', tableSeatTypeItems[6]);
-            tableSeatTypeItemsMap.insert('3', tableSeatTypeItems[7]);
-            tableSeatTypeItemsMap.insert('J', tableSeatTypeItems[7]);
-            tableSeatTypeItemsMap.insert('2', tableSeatTypeItems[8]);
-            tableSeatTypeItemsMap.insert('1', tableSeatTypeItems[9]);
-
-            /*for (auto &seatTypeData : tableSeatTypeData) {
-                tableSeatTypeItems[seatTypeData.first - ESPECIALSEATCOL]->setData(
-                    0, Qt::StatusTipRole);
-            }
-            for (auto &seatTypeData : tableSeatTypeData) {
-                tableSeatTypeItems[seatTypeData.first - ESPECIALSEATCOL]->setData(
-                    trainInfo[seatTypeData.second].isEmpty() ? _("--") :
-                        trainInfo[seatTypeData.second], Qt::StatusTipRole);
-            }*/
-            for (int j = 0; j < ypInfoNewSize; j += 10) {
-                if (j + 10 > ypInfoNewSize) {
-                    break;
-                }
-                int price = ypInfoNew.sliced(j + 1, 5).toInt();
-                float price2 = price / 10.0;
-                int dd = ypInfoNew.sliced(j + 6, 4).toInt();
-                char t = ypInfoNew[j].toLatin1();
-                QMap<char, QStandardItem *>::ConstIterator it =
-                    tableSeatTypeItemsMap.constFind(t);
-                if (it != tableSeatTypeItemsMap.constEnd()) {
-                    if (it.value()->text() != _("--")) {
-                        it.value()->setToolTip(_("%1").arg(price2));
-                        it.value()->setData(price2, Qt::ToolTipRole);
-                        if (uc.showTicketPrice) {
-                            it.value()->setText(_("%1").arg(price2));
-                            it.value()->setForeground(QBrush(QColor(238, 118, 33)));
-                        }
-                    }
-                } else {
-                    // 其他
-                    if (dd < 3000) {
-                        if (tableSeatTypeItems.size() > 11 &&
-                            tableSeatTypeItems[11]->text() != _("--")) {
-                            tableSeatTypeItems[11]->setToolTip(_("%1").arg(price2));
-                            tableSeatTypeItems[11]->setData(price2, Qt::ToolTipRole);
-                            if (uc.showTicketPrice) {
-                                tableSeatTypeItems[11]->setText(_("%1").arg(price2));
-                                tableSeatTypeItems[11]->setForeground(QBrush(QColor(238, 118, 33)));
-                            }
-                        }
-                    }
-                }
-                // 无座
-                if (dd >= 3000) {
-                    if (tableSeatTypeItems.size() > 10 &&
-                        tableSeatTypeItems[10]->text() != _("--")) {
-                        tableSeatTypeItems[10]->setToolTip(_("%1").arg(price2));
-                        tableSeatTypeItems[10]->setData(price2, Qt::ToolTipRole);
-                        if (uc.showTicketPrice) {
-                            tableSeatTypeItems[10]->setText(_("%1").arg(price2));
-                            tableSeatTypeItems[10]->setForeground(QBrush(QColor(238, 118, 33)));
-                        }
-                    }
-                }
-            }
-
-            tableSeatTypeItemsMap.clear();
-
-            trainNoDialog->addTrain(_("%1 (%2 %3 %4-%5 %6)").arg(trainInfo[ESTATIONTRAINCODE],
-                                                                 fromStationName,
-                                                                 toStationName,
-                                                                 trainInfo[ESTARTTIME],
-                                                                 trainInfo[EARRIVETIME],
-                                                                 trainInfo[ESPENDTIME]), trainInfo[ETRAINNO]);
-        }
-
-        tableSeatTypeItems.clear();
-        itemIdx++;
-    }
-    model->setRowCount(useTrainListSize);
-    trainNoDialog->addTrainFinish();
-    // 列车运行图调整的列车
-    int invalidTrainSize = invalidTrain.size();
-    for (i = 0; i < invalidTrainSize; i++) {
-        QStringList &trainInfo = invalidTrain[i];
-        QStandardItem *item;
-        model->setItem(itemIdx, ETRAINNOCOL, item = new QStandardItem(trainInfo[ESTATIONTRAINCODE].isEmpty() ?
-                                                                    "--" : trainInfo[ESTATIONTRAINCODE]));
-        item->setTextAlignment(Qt::AlignCenter);
-        item->setToolTip(trainInfo[ESTATIONTRAINCODE]);
-        fromStationName = stationMap.value(trainInfo[EFROMSTATIONTELECODE]).toString();
-        toStationName = stationMap.value(trainInfo[ETOSTATIONTELECODE]).toString();
-        model->setItem(itemIdx, EFROMSTATIONCOL, item = new QStandardItem);
-        item->setToolTip(fromStationName);
-        model->setItem(itemIdx, ETOSTATIONCOL, item = new QStandardItem);
-        item->setToolTip(toStationName);
-        for (int k = ESTARTTIMECOL; k < EREMARKCOL; k++) {
-            model->setItem(itemIdx, k, item = new QStandardItem(_("--")));
-            item->setTextAlignment(Qt::AlignCenter);
-        }
-        QPushButton *button = dynamic_cast<QPushButton *>(tableView->indexWidget(model->index(itemIdx, EREMARKCOL)));
-        if (button) {
-            disconnect(button, &QPushButton::clicked, this, &MainWindow::addTrainToSelected);
-            tableView->setIndexWidget(model->index(itemIdx, EREMARKCOL), nullptr);
-        }
-        model->setItem(itemIdx, EREMARKCOL, item = new QStandardItem(trainInfo[ETEXTINFO]));
-        item->setTextAlignment(Qt::AlignCenter);
-        item->setToolTip(trainInfo[ETEXTINFO]);
-        itemIdx++;
-    }
-
-    if (ud->runStatus == EIDLE) {
-        if (useTrainListSize == trainListSize) {
-            formatOutput(_("%1->%2(%3) 共查询到 %4 趟车次, 可预订 %5 趟车次").
-                         arg(staFromName, staToName, tourDate).arg(trainListSize).arg(can_booking));
-        } else {
-            formatOutput(_("%1->%2(%3) 共查询到 %4 趟车次, 已过滤 %5 趟车次, 可预订 %6 趟车次").
-                         arg(staFromName, staToName, tourDate).arg(trainListSize)
-                         .arg(trainListSize - useTrainListSize).arg(can_booking));
-        }
-    }
+    QMetaObject::invokeMethod(this, "updateTableView", Qt::QueuedConnection, Q_ARG(QVector<QStringList>, allTrain), Q_ARG(QVariantMap, stationMap));
 }
 
 void MainWindow::setStationNameCompleter(const QByteArray &nameText)
@@ -1548,9 +1535,11 @@ void MainWindow::switchTableTicketShowType(bool showTicketPrice)
     int rowCount = model->rowCount();
     QVariant data;
     QString text;
-    QStandardItem *item;
+    QModelIndex index;
     int role;
     int type;
+    const QBrush orange = QBrush(QColor(238, 118, 33));
+    const QBrush black = QBrush(QColor(00, 00, 00));
 
     if (showTicketPrice) {
         role = Qt::ToolTipRole;
@@ -1560,26 +1549,26 @@ void MainWindow::switchTableTicketShowType(bool showTicketPrice)
 
     for (int i = 0; i < rowCount; i++) {
         for (int j = ESPECIALSEATCOL; j < EREMARKCOL; j++) {
-            data = model->index(i, j).data(role);
-            item = model->item(i, j);
+            index = model->index(i, j);
+            data = index.data(role);
 
             if (data.isValid()) {
                 text = data.toString();
                 if (text != '0' && text != _("--")) {
-                    item->setText(text);
+                    model->setData(index, text, Qt::DisplayRole);
                     if (showTicketPrice) {
-                        item->setForeground(QBrush(QColor(238, 118, 33)));
+                        model->setData(index, orange, Qt::ForegroundRole);
                     } else {
-                        type = item->data(Qt::UserRole).toInt();
-                        setRemainTicketColor(text, item, CANCANDIDATE(type));
+                        type = index.data(Qt::UserRole).toInt();
+                        setRemainTicketColor(text, model, index, CANCANDIDATE(type));
                     }
                 } else {
-                    item->setText(_("--"));
-                    item->setForeground(Qt::black);
+                    model->setData(index, "--", Qt::DisplayRole);
+                    model->setData(index, black, Qt::ForegroundRole);
                 }
             } else {
-                item->setText(_("--"));
-                item->setForeground(Qt::black);
+                model->setData(index, "--", Qt::DisplayRole);
+                model->setData(index, black, Qt::ForegroundRole);
             }
         }
     }
@@ -1855,6 +1844,7 @@ void MainWindow::setUpTableView()
     tableView->setModel(model);
     IconDelegate *iconDelegate = new IconDelegate(this);
     tableView->setItemDelegate(iconDelegate);
+    tableView->setWordWrap(false);
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)

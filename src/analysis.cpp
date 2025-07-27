@@ -14,22 +14,6 @@
 
 extern MainWindow *w;
 
-/*
-static const QVector<QPair<QString, int>> seatTypeNameIndex = {
-    QPair<QString, int>(_("高级软卧"), TICKETIDX(EGRNUM)),
-    QPair<QString, int>(_("其他"), TICKETIDX(EQTNUM)),
-    QPair<QString, int>(_("软卧"), TICKETIDX(ERWNUM)),
-    QPair<QString, int>(_("软座"), TICKETIDX(ERZNUM)),
-    QPair<QString, int>(_("无座"), TICKETIDX(EWZNUM)),
-    QPair<QString, int>(_("动卧"), TICKETIDX(EYBNUM)),
-    QPair<QString, int>(_("硬卧"), TICKETIDX(EYWNUM)),
-    QPair<QString, int>(_("硬座"), TICKETIDX(EYZNUM)),
-    QPair<QString, int>(_("二等座"), TICKETIDX(EZENUM)),
-    QPair<QString, int>(_("一等座"), TICKETIDX(EZYNUM)),
-    QPair<QString, int>(_("商务特等座"), TICKETIDX(ESWZNUM))
-};
-*/
-
 int seatTypeNameToTicketIndex(const QList<QString> &seatTypeStrList, QVector<int> &seatType)
 {
     static const QMap<QString, int> seatTypeNameIndexMap = {
@@ -115,26 +99,25 @@ QChar ticketIndexToCode(int ticketIndex)
 
 QChar seatTypeNoToCode(enum TrainInfoEnum seatTypeNo)
 {
-    static const QMap<enum TrainInfoEnum, QChar> seatTypeNoCodeMap = {
-        { ESWZNUM, '9' },
-        { ETZNUM, 'P' },
-        { EGGNUM, 'D' },
-        { EZYNUM, 'M' },
-        { EZENUM, 'O' },
-        { EGRNUM, '6' },
-        { ERWNUM, '4' },
-        { ESRRBNUM, 'F' },
-        { EYWNUM, '3' },
-        { ERZNUM, '2' },
-        { EYZNUM, '1' },
-        { EWZNUM, 'W' },
-        { EQTNUM, 'H' }
-    };
-    QMap<enum TrainInfoEnum, QChar>::ConstIterator it;
+    QVector<char> seatTypeNocodeVec(EYPEX, 0);
 
-    it = seatTypeNoCodeMap.constFind(seatTypeNo);
+    Q_ASSERT(seatTypeNo >= EGGNUM && seatTypeNo < EYPEX);
 
-    return it != seatTypeNoCodeMap.constEnd() ? it.value() : '0';
+    seatTypeNocodeVec[TICKETIDX(ESWZNUM)] = SEATSHANGWU;
+    seatTypeNocodeVec[TICKETIDX(ETZNUM)] = SEATTEDENG;
+    seatTypeNocodeVec[TICKETIDX(EGGNUM)] = SEATYXYIDENG;
+    seatTypeNocodeVec[TICKETIDX(EZYNUM)] = SEATYIDENG;
+    seatTypeNocodeVec[TICKETIDX(EZENUM)] = SEATERDENG;
+    seatTypeNocodeVec[TICKETIDX(EGRNUM)] = SEATGAOJIDONGWUO;
+    seatTypeNocodeVec[TICKETIDX(ERWNUM)] = SEATRUANWUO;
+    seatTypeNocodeVec[TICKETIDX(ESRRBNUM)] = SEATDONGWUO;
+    seatTypeNocodeVec[TICKETIDX(EYWNUM)] = SEATYINGWUO;
+    seatTypeNocodeVec[TICKETIDX(ERZNUM)] = SEATRRUANZUO;
+    seatTypeNocodeVec[TICKETIDX(EYZNUM)] = SEATYINGZUO;
+    seatTypeNocodeVec[TICKETIDX(EWZNUM)] = SEATWUZUO1;
+    seatTypeNocodeVec[TICKETIDX(EQTNUM)] = SEATQITA;
+
+    return seatTypeNocodeVec[TICKETIDX(seatTypeNo)];
 }
 
 QChar seatTypeNameToCode(const QString &seatTypeName)
