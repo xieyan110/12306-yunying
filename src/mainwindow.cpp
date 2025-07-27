@@ -938,9 +938,6 @@ void MainWindow::processQueryTicketReply(QVariantMap &data)
     QVector<QStringList> candidateTrain;
     QString fromStationName, toStationName;
 
-    struct timespec t_spec[3];
-    clock_gettime(CLOCK_MONOTONIC, &t_spec[0]);
-
     for (i = 0; i < trainListSize; i++) {
         QString train = resultList[i].toString();
         QStringList trainInfo = train.split('|');
@@ -954,7 +951,6 @@ void MainWindow::processQueryTicketReply(QVariantMap &data)
         }
         allTrain.push_back(trainInfo);
     }
-    clock_gettime(CLOCK_MONOTONIC, &t_spec[1]);
 
     // 抢票模式先分析车票再渲染，防止渲染浪费时间
     if (ud->runStatus == EGRABTICKET) {
