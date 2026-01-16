@@ -29,6 +29,7 @@
 #include "selltimequerydialog.h"
 #include "upgrademanager.h"
 #include "completeedit.h"
+#include "lib/qt-notify/notifymanager.h"
 
 namespace Ui {
 class MainWindow;
@@ -41,13 +42,15 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
-    void setRemainTicketColor(QString &remain, QStandardItem *item, bool canCandidate);
+    void setRemainTicketColor(QString &remain, QStandardItemModel *model, const QModelIndex &index, bool canCandidate);
     void setUp();
 
 public slots:
     void userStartStationChanged();
     void userEndStationChanged();
     void userTourDateChanged(const QDate &date);
+    void updateTableView(QVector<QStringList> allTrain, QVariantMap stationMap);
+
 protected:
     void resizeEvent(QResizeEvent *event);
     void closeEvent(QCloseEvent *event);
@@ -166,9 +169,11 @@ public:
     LineChartView *delayChart;
     LineChartView *latencyChart;
 
-    Ntp ntp;
+    Ntp ntp;  // Ntp网络时间同步
 
-    UpgradeManager upgradeMng;
+    UpgradeManager upgradeMng;  // 版本更新处理器
+    NotifyManager *notifyMng; // 消息通知管理器
+    bool reQueryMidOn;  // 是否需要重新查询中间车站，出发站/到达站/乘车日期 变化需要重新查询
 };
 
 #endif // MAINWINDOW_H
