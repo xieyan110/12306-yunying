@@ -71,93 +71,110 @@ jobs:
           echo "=== Current directory contents ==="
           ls -la
           echo ""
-          echo "=== Looking for compilation outputs ==="
-          find . -name "yuny*"
+          echo "=== release directory contents ==="
+          if [ -d "release" ]; then
+            cd release
+            ls -la
+            cd ..
+          else
+            echo "release directory does NOT exist!"
+          fi
+          echo ""
+          echo "=== debug directory contents ==="
+          if [ -d "debug" ]; then
+            cd debug
+            ls -la
+            cd ..
+          else
+            echo "debug directory does NOT exist!"
+          fi
+          echo ""
+          echo "=== All yuny-related files ==="
+          find . -name "*yuny*"
+          echo ""
 
       - name: Package Project
+        shell: bash
         run: |
-          $version = "${{ steps.get_version.outputs.version }}"
-          $outputDir = "yuny_$version"
-          New-Item -Path $outputDir -ItemType 'Directory' -Force
+          VERSION="${{ steps.get_version.outputs.version }}"
+          OUTPUT_DIR="yuny_$VERSION"
+          mkdir -p $OUTPUT_DIR
 
           # 从 release 目录复制 yuny.exe
-          $exePath = "release\yuny.exe"
-          if (Test-Path $exePath) {
-            Write-Host "Found yuny.exe at: $exePath"
-            Copy-Item $exePath $outputDir
-          } else {
-            Write-Error "yuny.exe not found in $exePath! Check compilation output"
-            Write-Host "=== Current directory ==="
-            Get-ChildItem
-            Write-Host "`n=== release directory ==="
-            if (Test-Path "release") {
-              Get-ChildItem "release"
-            } else {
-              Write-Host "release directory not found!"
-            }
-            Write-Host "`n=== Recursive listing ==="
-            Get-ChildItem -Recurse
+          EXE_PATH="./release/yuny.exe"
+          if [ -f "$EXE_PATH" ]; then
+            echo "Found yuny.exe at: $EXE_PATH"
+            cp $EXE_PATH $OUTPUT_DIR
+          else
+            echo "ERROR: yuny.exe not found in $EXE_PATH!"
+            echo "Current directory: $(pwd)"
+            echo "Directory contents:"
+            ls -la
+            if [ -d "release" ]; then
+              echo "Release directory contents:"
+              ls -la release
+            else
+              echo "Release directory does NOT exist!"
+            fi
             exit 1
-          }
+          fi
 
           # 复制图标文件
-          Copy-Item images\ticket.ico "$outputDir\yuny.ico"
+          cp images/ticket.ico "$OUTPUT_DIR/yuny.ico"
 
           # 使用 windeployqt 收集 Qt 依赖库
-          Set-Location $outputDir
-          $qtBinPath = $env:Qt6_DIR + "\bin"
-          if (-not (Test-Path "$qtBinPath\windeployqt.exe")) {
-            Write-Error "windeployqt.exe not found at: $qtBinPath\windeployqt.exe"
+          cd $OUTPUT_DIR
+          QT_BIN_PATH="$Qt6_DIR/bin"
+          WINDEPLOYQT="$QT_BIN_PATH/windeployqt.exe"
+          if [ ! -f "$WINDEPLOYQT" ]; then
+            echo "ERROR: windeployqt.exe not found at: $WINDEPLOYQT"
             exit 1
-          }
+          fi
 
-          Write-Host "Running windeployqt from: $qtBinPath"
-          & "$qtBinPath\windeployqt.exe" yuny.exe
-
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "windeployqt failed with exit code $LASTEXITCODE"
+          echo "Running windeployqt from: $QT_BIN_PATH"
+          "$WINDEPLOYQT" yuny.exe
+          if [ $? -ne 0 ]; then
+            echo "ERROR: windeployqt failed"
             exit 1
-          }
+          fi
 
           # 下载并配置 7-Zip 用于打包
-          Set-Location ..
-          New-Item -Path "pkgTemp" -ItemType 'Directory' -Force
-          Set-Location "pkgTemp"
+          cd ..
+          mkdir -p pkgTemp
+          cd pkgTemp
+          echo "Downloading 7-Zip..."
+          curl -L -o 7z.exe "https://github.com/ip7z/7zip/releases/download/25.00/7z2500-x64.exe"
+          curl -L -o 7zip.7z "https://github.com/ip7z/7zip/releases/download/25.00/7z2500-extra.7z"
 
-          Write-Host "Downloading 7-Zip..."
-          Invoke-WebRequest -Uri "https://github.com/ip7z/7zip/releases/download/25.00/7z2500-x64.exe" -OutFile "7z.exe"
-          Invoke-WebRequest -Uri "https://github.com/ip7z/7zip/releases/download/25.00/7z2500-extra.7z" -OutFile "7zip.7z"
+          echo "Extracting 7-Zip..."
+          ./7z.exe x 7zip.7z -y
 
-          Write-Host "Extracting 7-Zip..."
-          .\7z.exe x 7zip.7z -y
-
-          # 复制 7-Zip 文件到输出目录（可选，主要用于打包）
-          Set-Location ..
-          Copy-Item "pkgTemp\x64\7za.dll" $outputDir -Force
-          Copy-Item "pkgTemp\x64\7za.exe" $outputDir -Force
-          Copy-Item "pkgTemp\x64\7zxa.dll" $outputDir -Force
+          # 复制 7-Zip 文件到输出目录
+          cd ..
+          cp pkgTemp/x64/7za.dll $OUTPUT_DIR
+          cp pkgTemp/x64/7za.exe $OUTPUT_DIR
+          cp pkgTemp/x64/7zxa.dll $OUTPUT_DIR
 
           # 打包成 ZIP 文件
-          $zipFileName = "yuny_$version.zip"
-          $7zPath = ".\pkgTemp\7z.exe"
+          ZIP_FILENAME="yuny_$VERSION.zip"
+          PKG_PATH="./pkgTemp/7z.exe"
 
-          Write-Host "Creating ZIP package: $zipFileName"
-          & $7zPath a -tzip $zipFileName $outputDir
+          echo "Creating ZIP package: $ZIP_FILENAME"
+          "$PKG_PATH" a -tzip $ZIP_FILENAME $OUTPUT_DIR
 
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "7-Zip packaging failed with exit code $LASTEXITCODE"
+          if [ $? -ne 0 ]; then
+            echo "ERROR: 7-Zip packaging failed"
             exit 1
-          }
+          fi
 
           # 验证 ZIP 文件
-          if (Test-Path $zipFileName) {
-            Write-Host "Successfully created $zipFileName"
-            $zipInfo = Get-Item $zipFileName
-            Write-Host "File size: $($zipInfo.Length / 1MB) MB"
-          } else {
-            Write-Error "Failed to create $zipFileName"
+          if [ -f "$ZIP_FILENAME" ]; then
+            echo "Successfully created $ZIP_FILENAME"
+            ls -lh $ZIP_FILENAME
+          else
+            echo "ERROR: Failed to create $ZIP_FILENAME"
             exit 1
-          }
+          fi
 
       - name: Publish release
         uses: softprops/action-gh-release@v1
