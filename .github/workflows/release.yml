@@ -186,7 +186,7 @@ jobs:
           Copy-Item yuny.exe "..\yuny_${{ steps.get_version.outputs.version }}"
           Set-Location "..\yuny_${{ steps.get_version.outputs.version }}"
           Copy-Item ..\images\ticket.ico yuny.ico
-          windeloyqt yuny.exe
+          windeployqt yuny.exe
           New-Item -Path "..\pkgTemp" -ItemType 'Directory'
           Set-Location "..\pkgTemp"
           curl -o 7z.exe https://github.com/ip7z/7zip/releases/download/25.00/7z2500-x64.exe
