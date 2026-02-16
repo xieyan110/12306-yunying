@@ -152,15 +152,10 @@ jobs:
             "C:\Program Files (x86)\7-Zip\7z.exe" a -tzip $ZIP_FILENAME $OUTPUT_DIR
           else
             echo "ERROR: 7-Zip not found on this system!"
-            echo "Looking for 7-Zip installation:"
-            if [ -d "C:\Program Files\" ]; then
-              echo "C:\Program Files\:"
-              ls -la "C:\Program Files\" 2>/dev/null
-            fi
-            if [ -d "C:\Program Files (x86)\" ]; then
-              echo "C:\Program Files (x86)\:"
-              ls -la "C:\Program Files (x86)\" 2>/dev/null
-            fi
+            echo "This Windows runner should have 7-Zip pre-installed!"
+            echo "Looking in default locations..."
+            ls -la "C:/Program Files/" 2>/dev/null || true
+            ls -la "C:/Program Files (x86)/" 2>/dev/null || true
             exit 1
           fi
 
