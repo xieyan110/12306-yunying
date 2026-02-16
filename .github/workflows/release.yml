@@ -153,7 +153,14 @@ jobs:
           else
             echo "ERROR: 7-Zip not found on this system!"
             echo "Looking for 7-Zip installation:"
-            ls -la "C:\Program Files\" 2>/dev/null || ls -la "C:\Program Files (x86)\" 2>/dev/null
+            if [ -d "C:\Program Files\" ]; then
+              echo "C:\Program Files\:"
+              ls -la "C:\Program Files\" 2>/dev/null
+            fi
+            if [ -d "C:\Program Files (x86)\" ]; then
+              echo "C:\Program Files (x86)\:"
+              ls -la "C:\Program Files (x86)\" 2>/dev/null
+            fi
             exit 1
           fi
 
