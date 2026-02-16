@@ -70,7 +70,8 @@ jobs:
         run: |
           echo "=== Current directory contents ==="
           ls -la
-          echo "`n=== Looking for compilation outputs ==="
+          echo ""
+          echo "=== Looking for compilation outputs ==="
           find . -name "yuny*"
 
       - name: Package Project
