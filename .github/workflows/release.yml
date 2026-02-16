@@ -138,29 +138,24 @@ jobs:
             exit 1
           fi
 
-          # 下载并配置 7-Zip 用于打包
+          # 直接使用系统内置的 7-Zip 打包
           cd ..
-          mkdir -p pkgTemp
-          cd pkgTemp
-          echo "Downloading 7-Zip..."
-          curl -L -o 7z.exe "https://github.com/ip7z/7zip/releases/download/25.00/7z2500-x64.exe"
-          curl -L -o 7zip.7z "https://github.com/ip7z/7zip/releases/download/25.00/7z2500-extra.7z"
-
-          echo "Extracting 7-Zip..."
-          ./7z.exe x 7zip.7z -y
-
-          # 复制 7-Zip 文件到输出目录
-          cd ..
-          cp pkgTemp/x64/7za.dll $OUTPUT_DIR
-          cp pkgTemp/x64/7za.exe $OUTPUT_DIR
-          cp pkgTemp/x64/7zxa.dll $OUTPUT_DIR
-
-          # 打包成 ZIP 文件
           ZIP_FILENAME="yuny_$VERSION.zip"
-          PKG_PATH="./pkgTemp/7z.exe"
-
-          echo "Creating ZIP package: $ZIP_FILENAME"
-          "$PKG_PATH" a -tzip $ZIP_FILENAME $OUTPUT_DIR
+          if command -v 7z >/dev/null 2>&1; then
+            echo "Found 7z command"
+            7z a -tzip $ZIP_FILENAME $OUTPUT_DIR
+          elif command -v "C:\Program Files\7-Zip\7z.exe" >/dev/null 2>&1; then
+            echo "Found 7-Zip at C:\Program Files\7-Zip\7z.exe"
+            "C:\Program Files\7-Zip\7z.exe" a -tzip $ZIP_FILENAME $OUTPUT_DIR
+          elif command -v "C:\Program Files (x86)\7-Zip\7z.exe" >/dev/null 2>&1; then
+            echo "Found 7-Zip at C:\Program Files (x86)\7-Zip\7z.exe"
+            "C:\Program Files (x86)\7-Zip\7z.exe" a -tzip $ZIP_FILENAME $OUTPUT_DIR
+          else
+            echo "ERROR: 7-Zip not found on this system!"
+            echo "Looking for 7-Zip installation:"
+            ls -la "C:\Program Files\" 2>/dev/null || ls -la "C:\Program Files (x86)\" 2>/dev/null
+            exit 1
+          fi
 
           if [ $? -ne 0 ]; then
             echo "ERROR: 7-Zip packaging failed"
