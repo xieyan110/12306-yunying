@@ -80,29 +80,21 @@ jobs:
           $outputDir = "yuny_$version"
           New-Item -Path $outputDir -ItemType 'Directory' -Force
 
-          # 查找 yuny.exe 文件，考虑各种可能的输出目录
-          $exeLocations = @(
-            "yuny.exe",
-            "release\yuny.exe",
-            "win32\release\yuny.exe",
-            ".\release\yuny.exe",
-            ".\win32\release\yuny.exe"
-          )
-
-          $found = $false
-          foreach ($location in $exeLocations) {
-            if (Test-Path $location) {
-              Write-Host "Found yuny.exe at: $location"
-              Copy-Item $location $outputDir
-              $found = $true
-              break
-            }
-          }
-
-          if (-not $found) {
-            Write-Error "yuny.exe not found in any expected location! Check compilation output"
+          # 从 release 目录复制 yuny.exe
+          $exePath = "release\yuny.exe"
+          if (Test-Path $exePath) {
+            Write-Host "Found yuny.exe at: $exePath"
+            Copy-Item $exePath $outputDir
+          } else {
+            Write-Error "yuny.exe not found in $exePath! Check compilation output"
             Write-Host "=== Current directory ==="
-            ls -la
+            Get-ChildItem
+            Write-Host "`n=== release directory ==="
+            if (Test-Path "release") {
+              Get-ChildItem "release"
+            } else {
+              Write-Host "release directory not found!"
+            }
             Write-Host "`n=== Recursive listing ==="
             Get-ChildItem -Recurse
             exit 1
