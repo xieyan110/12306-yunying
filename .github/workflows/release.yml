@@ -66,11 +66,12 @@ jobs:
         run: nmake
 
       - name: List compilation output
+        shell: bash
         run: |
-          Write-Host "=== Current directory contents ==="
+          echo "=== Current directory contents ==="
           ls -la
-          Write-Host "`n=== Looking for compilation outputs ==="
-          Get-ChildItem -Recurse -Filter "yuny*"
+          echo "`n=== Looking for compilation outputs ==="
+          find . -name "yuny*"
 
       - name: Package Project
         run: |
