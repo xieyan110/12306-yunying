@@ -194,7 +194,7 @@ void LoginDialog::setUp()
     sip.dnsAnswer("kyfw.12306.cn");
 #endif
 
-    setWindowTitle(tr("云映 ") + tr(THISVERSION));
+    setWindowTitle(tr("小狼 ") + tr(THISVERSION));
 }
 
 void LoginDialog::tabIndexChanged(int index)

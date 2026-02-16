@@ -1,4 +1,4 @@
-# ![](images/ticket.ico) 云映12306客户端
+# ![](images/ticket.ico) 小狼12306客户端
 
 *由Qt构建的 12306 GUI购票工具*
 

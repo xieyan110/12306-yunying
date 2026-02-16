@@ -920,7 +920,7 @@ void SettingDialog::sendMailWork(const QString &mailMsg)
     smtpEmail->sendEmail(ud->notifySetting.emailNotify.senderEmailAddress.toStdString(),
                          ud->notifySetting.emailNotify.authCode.toStdString(),
                          recevier,
-                         _("云映状态通知").toStdString(),
+                         _("小狼状态通知").toStdString(),
                          mailMsg.toStdString(),
                          cclist,
                          cclist);
@@ -974,7 +974,7 @@ void SettingDialog::sendTestMail()
         emailTestMsgLa->setText(_("smtp域名未填写，请先填写smtp域名"));
         return;
     }
-    QString mailMsg = _("这是一条来自云映的测试通知消息，如果您收到此消息，说明您已成功配置。"
+    QString mailMsg = _("这是一条来自小狼的测试通知消息，如果您收到此消息，说明您已成功配置。"
                         "若您未进行过相关操作可能是别人误填了您的邮箱地址，请忽略本消息");
     sendMailWork(mailMsg);
 }
@@ -1244,7 +1244,7 @@ void SettingDialog::notifySetting(QTabWidget *tab)
     QHBoxLayout *hlayout1 = new QHBoxLayout;
     QPushButton *testMail = new QPushButton(tr("测试发送"));
     connect(testMail, &QPushButton::clicked, this, &SettingDialog::sendTestMail);
-    testMail->setToolTip(tr("您稍后将收到主题为'云映状态通知'的邮件"));
+    testMail->setToolTip(tr("您稍后将收到主题为'小狼状态通知'的邮件"));
     hlayout1->addStretch();
     hlayout1->addWidget(testMail);
     hlayout1->addStretch();
@@ -1395,7 +1395,7 @@ void SettingDialog::wxNotifySetting(QTabWidget *tab)
     notifyStatusTimer = nullptr;
     QPushButton *testPb = new QPushButton(tr("测试"));
     connect(testPb, &QPushButton::clicked, this, [this] () {
-        QString msg = _("云映测试消息，收到此消息说明通知配置成功");
+        QString msg = _("小狼测试消息，收到此消息说明通知配置成功");
         sendWxNotify(msg);
         wxNotifyLabel->clear();
     });

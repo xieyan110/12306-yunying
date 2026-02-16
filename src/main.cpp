@@ -34,11 +34,11 @@ int main(int argc, char *argv[])
 
     QCoreApplication::setOrganizationName(_("yuny"));
     QCoreApplication::setOrganizationDomain(_("op9.top"));
-    QCoreApplication::setApplicationName(_("云映"));
+    QCoreApplication::setApplicationName(_("小狼"));
 
     w = new MainWindow;
     w->setUp();
-    w->setWindowTitle(QObject::tr("云映 ") + QObject::tr(THISVERSION));
+    w->setWindowTitle(QObject::tr("小狼 ") + QObject::tr(THISVERSION));
     w->setWindowIcon(QIcon(_(":/icon/images/ticket.ico")));
 
     QList<QScreen *> screen = QGuiApplication::screens();
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
     NetHelper *nh = NetHelper::instance();
     nh->initLoginCookie();
     nh->getLoginConf();
-    nh->checkUpdate();
+    // nh->checkUpdate();
     nh->leftTicketInit();
 #ifdef HAS_CDN
     w->getCdn();

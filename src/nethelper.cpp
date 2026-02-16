@@ -2762,8 +2762,8 @@ void NetHelper::sendMail()
             mailContent += _("</tr>");
         }
         mailContent += "</table>"
-            "<p>您收到此通知是因为您在<a href=\"https://www.op9.top\">云映程序</a>配置了此邮箱，"
-            "如您未使用<a href=\"https://www.op9.top\">云映程序</a>进行过相关配置或未授权他人使用此邮箱，请忽略本邮件。</p>"
+            "<p>您收到此通知是因为您在<a href=\"https://www.op9.top\">小狼程序</a>配置了此邮箱，"
+            "如您未使用<a href=\"https://www.op9.top\">小狼程序</a>进行过相关配置或未授权他人使用此邮箱，请忽略本邮件。</p>"
             "</body>"
             "</html>";
         w->settingDialog->sendMail(mailContent);
@@ -2825,8 +2825,8 @@ void NetHelper::sendCandidateMail()
             text.clear();
         }
         mailContent += "</table>"
-                       "<p>您收到此通知是因为您在<a href=\"https://www.op9.top\">云映程序</a>配置了此邮箱，"
-                       "如您未使用<a href=\"https://www.op9.top\">云映程序</a>进行过相关配置或未授权他人使用此邮箱，请忽略本邮件。</p>"
+                       "<p>您收到此通知是因为您在<a href=\"https://www.op9.top\">小狼程序</a>配置了此邮箱，"
+                       "如您未使用<a href=\"https://www.op9.top\">小狼程序</a>进行过相关配置或未授权他人使用此邮箱，请忽略本邮件。</p>"
                        "</body>"
                        "</html>";
         w->settingDialog->sendMail(mailContent);
@@ -2929,7 +2929,7 @@ void NetHelper::sendWxNotify(const QString &sendKey, const QString &msg)
 {
     QUrl url(_("https://sctapi.ftqq.com/") + sendKey + _(".send"));
     ReqParam param;
-    param.put(_("title"), _("云映状态通知").toUtf8().toPercentEncoding());
+    param.put(_("title"), _("小狼状态通知").toUtf8().toPercentEncoding());
     param.put(_("desp"), msg.toUtf8().toPercentEncoding());
     param.put(_("short"), _("您有一条需要关注的消息").toUtf8().toPercentEncoding());
     anyPost(url, param, &NetHelper::sendWxNotifyReply);
