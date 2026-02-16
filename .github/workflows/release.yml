@@ -7,31 +7,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  create_release:
-    name: "🗃️️ Prepare release"
-    permissions:
-      contents: write # for actions/create-release to create a release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      release_id: ${{ steps.create_release.outputs.id }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ env.TAG }}
-          release_name: Release v${{ env.VERSION }}
-          body: ${{ env.RELEASE_TEXT }}
-          # we want other build systems to immediately use this release after we uploaded the source archive
-          draft: false
-          prerelease: false
-
   build-and-publish-windows:
     runs-on: windows-latest
+    permissions:
+      contents: write  # 授予写入权限，用于发布到 GitHub Releases
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,7 +24,6 @@ jobs:
           # 提取标签中的版本号 (去除前缀)
           VERSION=${GITHUB_REF#refs/tags/}
           VERSION=${VERSION#v}  # 去除v前缀
-          VERSION=${VERSION#release-}  # 去除release-前缀
           echo "Extracted version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
@@ -82,59 +60,106 @@ jobs:
           echo "MSVC 2019 is ready!"
 
       - name: Configure with qmake
-        run: qmake .
+        run: qmake . CONFIG+=Release
 
       - name: Build on Windows
         run: nmake
 
+      - name: List compilation output
+        run: |
+          Write-Host "=== Current directory contents ==="
+          ls -la
+          Write-Host "`n=== Looking for compilation outputs ==="
+          Get-ChildItem -Recurse -Filter "yuny*"
+
       - name: Package Project
         run: |
-          # 检查编译输出目录
-          ls -la
-          if (Test-Path "release\yuny.exe") {
-            Copy-Item "release\yuny.exe" .
-          } elseif (Test-Path "yuny.exe") {
-            Write-Host "yuny.exe found in current directory"
-          } else {
-            Write-Error "yuny.exe not found! Check compilation output"
-            exit 1
-          }
-
-          # 创建输出目录
           $version = "${{ steps.get_version.outputs.version }}"
           $outputDir = "yuny_$version"
           New-Item -Path $outputDir -ItemType 'Directory' -Force
 
-          # 复制可执行文件和图标
-          Copy-Item yuny.exe $outputDir
+          # 查找 yuny.exe 文件，考虑各种可能的输出目录
+          $exeLocations = @(
+            "yuny.exe",
+            "release\yuny.exe",
+            "win32\release\yuny.exe",
+            ".\release\yuny.exe",
+            ".\win32\release\yuny.exe"
+          )
+
+          $found = $false
+          foreach ($location in $exeLocations) {
+            if (Test-Path $location) {
+              Write-Host "Found yuny.exe at: $location"
+              Copy-Item $location $outputDir
+              $found = $true
+              break
+            }
+          }
+
+          if (-not $found) {
+            Write-Error "yuny.exe not found in any expected location! Check compilation output"
+            Write-Host "=== Current directory ==="
+            ls -la
+            Write-Host "`n=== Recursive listing ==="
+            Get-ChildItem -Recurse
+            exit 1
+          }
+
+          # 复制图标文件
           Copy-Item images\ticket.ico "$outputDir\yuny.ico"
 
           # 使用 windeployqt 收集 Qt 依赖库
           Set-Location $outputDir
-          windeployqt yuny.exe
+          $qtBinPath = $env:Qt6_DIR + "\bin"
+          if (-not (Test-Path "$qtBinPath\windeployqt.exe")) {
+            Write-Error "windeployqt.exe not found at: $qtBinPath\windeployqt.exe"
+            exit 1
+          }
+
+          Write-Host "Running windeployqt from: $qtBinPath"
+          & "$qtBinPath\windeployqt.exe" yuny.exe
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "windeployqt failed with exit code $LASTEXITCODE"
+            exit 1
+          }
 
           # 下载并配置 7-Zip 用于打包
           Set-Location ..
           New-Item -Path "pkgTemp" -ItemType 'Directory' -Force
           Set-Location "pkgTemp"
+
+          Write-Host "Downloading 7-Zip..."
           Invoke-WebRequest -Uri "https://github.com/ip7z/7zip/releases/download/25.00/7z2500-x64.exe" -OutFile "7z.exe"
           Invoke-WebRequest -Uri "https://github.com/ip7z/7zip/releases/download/25.00/7z2500-extra.7z" -OutFile "7zip.7z"
+
+          Write-Host "Extracting 7-Zip..."
           .\7z.exe x 7zip.7z -y
 
-          # 复制 7-Zip 文件到输出目录
+          # 复制 7-Zip 文件到输出目录（可选，主要用于打包）
           Set-Location ..
-          Copy-Item "pkgTemp\x64\7za.dll" $outputDir
-          Copy-Item "pkgTemp\x64\7za.exe" $outputDir
-          Copy-Item "pkgTemp\x64\7zxa.dll" $outputDir
+          Copy-Item "pkgTemp\x64\7za.dll" $outputDir -Force
+          Copy-Item "pkgTemp\x64\7za.exe" $outputDir -Force
+          Copy-Item "pkgTemp\x64\7zxa.dll" $outputDir -Force
 
           # 打包成 ZIP 文件
           $zipFileName = "yuny_$version.zip"
-          .\pkgTemp\7z.exe a -tzip $zipFileName $outputDir
+          $7zPath = ".\pkgTemp\7z.exe"
+
+          Write-Host "Creating ZIP package: $zipFileName"
+          & $7zPath a -tzip $zipFileName $outputDir
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "7-Zip packaging failed with exit code $LASTEXITCODE"
+            exit 1
+          }
 
           # 验证 ZIP 文件
           if (Test-Path $zipFileName) {
             Write-Host "Successfully created $zipFileName"
-            Get-Item $zipFileName
+            $zipInfo = Get-Item $zipFileName
+            Write-Host "File size: $($zipInfo.Length / 1MB) MB"
           } else {
             Write-Error "Failed to create $zipFileName"
             exit 1
@@ -143,10 +168,10 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
+          tag_name: ${{ github.ref_name }}
           name: Release ${{ steps.get_version.outputs.version }}
           body: |
-            Automated release created from tag ${{ github.ref }}
+            Automated release created from tag ${{ github.ref_name }}
             Commit: ${{ github.sha }}
           files: |
             yuny_*.zip
